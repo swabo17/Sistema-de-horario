@@ -1,0 +1,23 @@
+{
+  "scheduling_request": {
+    "month_config": {
+      "year": 2026,
+      "month": 4,
+      "days_in_month": 30,
+      "starting_day_of_week": "Wednesday"
+    },
+    "store_config": {
+      "store_name": "Sucursal Centro",
+      "min_employees_per_day": 1,
+      "min_employees_on_sunday": 1,
+      "holidays": [],
+      "closed_days": []
+    },
+    "employees": [
+      {"employee_id": "EMP001", "name": "Juan Perez", "contract_type": "Full Time", "prior_exceptions": []},
+      {"employee_id": "EMP002", "name": "Maria Garcia", "contract_type": "Full Time", "prior_exceptions": []},
+      {"employee_id": "EMP003", "name": "Carlos Lopez", "contract_type": "Full Time", "prior_exceptions": []},
+      {"employee_id": "EMP004", "name": "Ana Martinez", "contract_type": "Full Time", "prior_exceptions": []}
+    ]
+  }
+}

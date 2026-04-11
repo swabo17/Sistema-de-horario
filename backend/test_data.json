@@ -1,0 +1,81 @@
+{
+  "scheduling_request": {
+    "month_config": {
+      "year": 2026,
+      "month": 4,
+      "days_in_month": 30,
+      "starting_day_of_week": "Wednesday"
+    },
+    "store_config": {
+      "store_name": "Sucursal Centro",
+      "min_employees_per_day": 3,
+      "min_employees_on_sunday": 2,
+      "special_days": [
+        {
+          "day": 1,
+          "type": "FI",
+          "description": "Feriado: Día del Trabajo"
+        },
+        {
+          "day": 10,
+          "type": "C",
+          "description": "Local Cerrado: Mantenimiento"
+        }
+      ]
+    },
+    "employees": [
+      {
+        "employee_id": "EMP001",
+        "name": "Juan Pérez",
+        "contract_type": "Full Time",
+        "max_hours_per_month": 176,
+        "hours_per_day": 8,
+        "max_consecutive_work_days": 6,
+        "min_rest_days_per_week": 1,
+        "prior_exceptions": [
+          {
+            "day": 5,
+            "type": "V",
+            "description": "Vacaciones"
+          }
+        ]
+      },
+      {
+        "employee_id": "EMP002",
+        "name": "María García",
+        "contract_type": "Full Time",
+        "max_hours_per_month": 176,
+        "hours_per_day": 8,
+        "max_consecutive_work_days": 6,
+        "min_rest_days_per_week": 1,
+        "prior_exceptions": []
+      },
+      {
+        "employee_id": "EMP003",
+        "name": "Carlos López",
+        "contract_type": "Part Time",
+        "max_hours_per_month": 88,
+        "hours_per_day": 4,
+        "max_consecutive_work_days": 6,
+        "min_rest_days_per_week": 1,
+        "prior_exceptions": [
+          {
+            "day": 15,
+            "type": "LM",
+            "description": "Licencia Médica"
+          }
+        ]
+      },
+      {
+        "employee_id": "EMP004",
+        "name": "Ana Martínez",
+        "contract_type": "Full Time",
+        "max_hours_per_month": 176,
+        "hours_per_day": 8,
+        "max_consecutive_work_days": 6,
+        "min_rest_days_per_week": 1,
+        "prior_exceptions": []
+      }
+    ]
+  }
+}

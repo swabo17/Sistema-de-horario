@@ -1,0 +1,32 @@
+# Backend
+backend/__pycache__/
+backend/*.pyc
+backend/venv/
+backend/.venv/
+backend/generated_schedules/
+backend/.pytest_cache/
+backend/.coverage
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Misc
+*.tmp
+.env
+.env.local

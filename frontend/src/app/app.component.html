@@ -1,0 +1,275 @@
+<div class="container">
+  <!-- Header -->
+  <header class="header">
+    <h1>🏪 Sistema de Generación de Horarios</h1>
+    <p>Programación automática de turnos para retail</p>
+  </header>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'config'"
+      (click)="switchTab('config')">
+      ⚙️ Configuración
+    </button>
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'results'"
+      (click)="switchTab('results')"
+      [disabled]="!generatedSchedule">
+      📊 Resultados
+    </button>
+  </div>
+
+  <!-- Alerts -->
+  <div *ngIf="errorMessage" class="alert alert-error">
+    {{ errorMessage }}
+  </div>
+  <div *ngIf="successMessage" class="alert alert-success">
+    {{ successMessage }}
+  </div>
+
+  <!-- Configuration Tab -->
+  <div [hidden]="activeTab !== 'config'" class="tab-content">
+    <form [formGroup]="schedulingForm">
+      
+      <!-- Mes Configuration -->
+      <section class="form-section">
+        <h2>📅 Configuración del Mes</h2>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Año</label>
+            <input type="number" formControlName="year" min="2020" max="2100">
+          </div>
+          <div class="form-group">
+            <label>Mes</label>
+            <select formControlName="month">
+              <option value="1">Enero</option>
+              <option value="2">Febrero</option>
+              <option value="3">Marzo</option>
+              <option value="4">Abril</option>
+              <option value="5">Mayo</option>
+              <option value="6">Junio</option>
+              <option value="7">Julio</option>
+              <option value="8">Agosto</option>
+              <option value="9">Septiembre</option>
+              <option value="10">Octubre</option>
+              <option value="11">Noviembre</option>
+              <option value="12">Diciembre</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Días en el Mes</label>
+            <input type="number" formControlName="days_in_month" min="28" max="31">
+          </div>
+          <div class="form-group">
+            <label>Inicia el</label>
+            <select formControlName="starting_day">
+              <option value="Monday">Lunes</option>
+              <option value="Tuesday">Martes</option>
+              <option value="Wednesday">Miércoles</option>
+              <option value="Thursday">Jueves</option>
+              <option value="Friday">Viernes</option>
+              <option value="Saturday">Sábado</option>
+              <option value="Sunday">Domingo</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Store Configuration -->
+      <section class="form-section">
+        <h2>🏬 Configuración de la Tienda</h2>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Nombre de la Sucursal</label>
+            <input type="text" formControlName="store_name" placeholder="Ej: Sucursal Centro">
+          </div>
+          <div class="form-group">
+            <label>Mín. Empleados por Día</label>
+            <input type="number" formControlName="min_employees_per_day" min="1">
+          </div>
+          <div class="form-group">
+            <label>Mín. Empleados Domingo</label>
+            <input type="number" formControlName="min_employees_on_sunday" min="1">
+          </div>
+        </div>
+      </section>
+
+      <!-- Employees -->
+      <section class="form-section">
+        <h2>👥 Empleados</h2>
+        <table class="employees-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Contrato</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let emp of employees; let i = index" class="employee-row">
+              <td>
+                <input type="text" [(ngModel)]="emp.employee_id" [ngModelOptions]="{standalone: true}" readonly>
+              </td>
+              <td>
+                <input type="text" [(ngModel)]="emp.name" [ngModelOptions]="{standalone: true}" placeholder="Nombre completo">
+              </td>
+              <td>
+                <select [(ngModel)]="emp.contract_type" [ngModelOptions]="{standalone: true}">
+                  <option value="Full Time">Full Time</option>
+                  <option value="Part Time">Part Time</option>
+                </select>
+              </td>
+              <td>
+                <button type="button" (click)="removeEmployee(i)" class="btn-remove">Eliminar</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <button type="button" (click)="addEmployee()" class="btn btn-secondary">+ Agregar Empleado</button>
+      </section>
+
+      <!-- Holidays -->
+      <section class="form-section">
+        <h2>🎉 Feriados</h2>
+        <table class="holidays-table" *ngIf="holidays.length > 0">
+          <thead>
+            <tr>
+              <th>Día</th>
+              <th>Tipo</th>
+              <th>Descripción</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let holiday of holidays; let i = index">
+              <td>
+                <input type="number" [(ngModel)]="holiday.day" [ngModelOptions]="{standalone: true}" min="1" max="31">
+              </td>
+              <td>
+                <select [(ngModel)]="holiday.type" [ngModelOptions]="{standalone: true}">
+                  <option value="Normal">Normal</option>
+                  <option value="Irrenunciable">Irrenunciable</option>
+                </select>
+              </td>
+              <td>
+                <input type="text" [(ngModel)]="holiday.description" [ngModelOptions]="{standalone: true}" placeholder="Ej: Jueves Santo">
+              </td>
+              <td>
+                <button type="button" (click)="removeHoliday(i)" class="btn-remove">Eliminar</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <button type="button" (click)="addHoliday()" class="btn btn-secondary">+ Agregar Feriado</button>
+      </section>
+
+      <!-- Closed Days -->
+      <section class="form-section">
+        <h2>🚪 Días Cerrados</h2>
+        <table class="closed-days-table" *ngIf="closedDays.length > 0">
+          <thead>
+            <tr>
+              <th>Día</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let closed of closedDays; let i = index">
+              <td>
+                <input type="number" [(ngModel)]="closed.day" [ngModelOptions]="{standalone: true}" min="1" max="31">
+              </td>
+              <td>
+                <button type="button" (click)="removeClosedDay(i)" class="btn-remove">Eliminar</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <button type="button" (click)="addClosedDay()" class="btn btn-secondary">+ Agregar Día Cerrado</button>
+      </section>
+
+      <!-- Generate Button -->
+      <div class="form-actions">
+        <button 
+          type="button" 
+          (click)="generateSchedule()" 
+          class="btn btn-primary"
+          [disabled]="generateLoading || employees.length === 0">
+          {{ generateLoading ? 'Generando...' : '🚀 Generar Horarios' }}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Results Tab -->
+  <div [hidden]="activeTab !== 'results'" class="tab-content" *ngIf="generatedSchedule">
+    <section class="results-section">
+      <h2>📊 Horarios Generados</h2>
+      
+      <div class="result-info">
+        <p><strong>Archivo:</strong> {{ generatedSchedule.file_name }}</p>
+        <p><strong>Mensaje:</strong> {{ generatedSchedule.message }}</p>
+      </div>
+
+      <div class="result-summary">
+        <h3>Resumen por Empleado</h3>
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th>Empleado</th>
+              <th>T8</th>
+              <th>T9</th>
+              <th>T10</th>
+              <th>DT</th>
+              <th>L</th>
+              <th>LC</th>
+              <th>V</th>
+              <th>LM</th>
+              <th>FI</th>
+              <th>C</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let emp of employees">
+              <td>{{ emp.name }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.T8 || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.T9 || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.T10 || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.DT || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.L || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.LC || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.V || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.LM || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.FI || 0 }}</td>
+              <td>{{ generatedSchedule.summary[emp.employee_id]?.C || 0 }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="result-legend">
+        <h3>Leyenda de Glosas</h3>
+        <div class="legend-grid">
+          <div class="legend-item" style="background-color: #87CEEB;"><strong>T8</strong> - Turno 8h</div>
+          <div class="legend-item" style="background-color: #00BFFF;"><strong>T9</strong> - Turno 9h</div>
+          <div class="legend-item" style="background-color: #1E90FF;"><strong>T10</strong> - Turno 10h</div>
+          <div class="legend-item" style="background-color: #0047AB;"><strong>DT</strong> - Domingo Trabajado</div>
+          <div class="legend-item" style="background-color: #90EE90;"><strong>L</strong> - Libre</div>
+          <div class="legend-item" style="background-color: #FFFFE0;"><strong>LC</strong> - Libre Compensado</div>
+          <div class="legend-item" style="background-color: #FFB6C1;"><strong>V</strong> - Vacaciones</div>
+          <div class="legend-item" style="background-color: #FFA07A;"><strong>LM</strong> - Licencia Médica</div>
+          <div class="legend-item" style="background-color: #FF4500;"><strong>FI</strong> - Feriado Irrenunciable</div>
+          <div class="legend-item" style="background-color: #A9A9A9;"><strong>C</strong> - Local Cerrado</div>
+        </div>
+      </div>
+
+      <div class="result-actions">
+        <button (click)="downloadExcel()" class="btn btn-primary">⬇️ Descargar Excel</button>
+        <button (click)="switchTab('config')" class="btn btn-secondary">← Volver a Configuración</button>
+      </div>
+    </section>
+  </div>
+</div>
