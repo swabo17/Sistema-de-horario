@@ -175,10 +175,10 @@ class ScheduleOptimizer:
         self._constraint_pt_2_days_per_week()
         
         print("[SCHEDULER_V2] 10/13 - Restricción: Feriados Irrenunciables...")
-        self._constraint_holidays_irren()
+        #self._constraint_holidays_irren()
         
         print("[SCHEDULER_V2] 11/13 - Restricción: Compensación de Feriados Normales...")
-        self._constraint_holiday_compensation()
+        #self._constraint_holiday_compensation()
         
         print("[SCHEDULER_V2] 12/13 - Restricción: Cobertura Mínima...")
         self._constraint_minimum_coverage()
