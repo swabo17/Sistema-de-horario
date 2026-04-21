@@ -30,6 +30,17 @@ class ScheduleOptimizer:
         # Identificar días de la semana
         self.sundays = self._get_sundays()
         self.special_days = self._parse_special_days()
+        # Identificar feriados normales (que generan compensación)
+        self.feriados_normales = [day for day, d_type in self.special_days.items() if d_type == "Holiday_Normal"] # Ajusta según tu lógica real de modelos
+        
+        # Calcular semanas (agrupar los días de 7 en 7 para las restricciones semanales)
+        self.weeks = []
+        current_week = []
+        for day, _ in self.calendar:
+            current_week.append(day)
+            if len(current_week) == 7 or day == self.month_config.days_in_month:
+                self.weeks.append(current_week)
+                current_week = []
         
         # Crear modelo PuLP
         self.model = pulp.LpProblem("Schedule_Optimization", pulp.LpMinimize)
@@ -100,23 +111,24 @@ class ScheduleOptimizer:
         return True
 
     def _create_variables(self):
-        """
-        Crea variables de decisión:
-        x[emp_id][day][shift_code] ∈ {0, 1}
-        """
-        shift_codes = ["T", "DT", "L", "LC", "V", "LM"]
+        # AQUÍ DEFINES TODOS LOS CÓDIGOS POSIBLES
+        self.all_codes = ["T8", "T9", "T10", "DT", "L", "LC", "V", "LM", "FI", "C"]
+        self.work_codes = ["T8", "T9", "T10", "DT"] # Solo los de trabajo
         
         for emp in self.employees:
             self.x[emp.employee_id] = {}
-            
             for day in self.days_range:
                 self.x[emp.employee_id][day] = {}
-                
-                for code in shift_codes:
+                for code in self.all_codes:
                     var_name = f"x_{emp.employee_id}_d{day}_{code}"
-                    self.x[emp.employee_id][day][code] = pulp.LpVariable(
-                        var_name, cat='Binary'
-                    )
+                    self.x[emp.employee_id][day][code] = pulp.LpVariable(var_name, cat='Binary')
+
+    def _add_constraint_one_assignment_per_day(self):
+        for emp in self.employees:
+            for day in self.days_range:
+                # Sumar todas las variables posibles y obligar a que sea 1
+                constraint = pulp.lpSum([self.x[emp.employee_id][day][code] for code in self.all_codes]) == 1
+                self.model += constraint, f"one_assign_{emp.employee_id}_d{day}"
 
     def _add_constraint_one_assignment_per_day(self):
         """
@@ -178,26 +190,138 @@ class ScheduleOptimizer:
             )
 
     def _add_constraint_max_consecutive_work_days(self):
-        """
-        Restricción 2: Máximo días consecutivos trabajando
-        ∑_{j=0}^{6} (x_T[e][d+j] + x_DT[e][d+j]) ≤ 6, ∀e,d
-        """
         for emp in self.employees:
-            max_days = emp.max_consecutive_work_days
-            
-            # Ventanas de 7 días consecutivos
-            for start_day in range(1, self.month_config.days_in_month - 5):
-                work_hours_in_window = pulp.lpSum([
-                    self.x[emp.employee_id][start_day + offset]["T"] +
-                    self.x[emp.employee_id][start_day + offset]["DT"]
-                    for offset in range(7)
+            # Evaluar ventanas de 6 días, la suma de trabajo no puede ser 6
+            for start_day in range(1, self.month_config.days_in_month - 4):
+                work_days_in_window = pulp.lpSum([
+                    self.x[emp.employee_id][start_day + offset][s]
+                    for offset in range(6)
+                    for s in self.work_shift_codes # todos los códigos de turno de trabajo
                     if start_day + offset <= self.month_config.days_in_month
                 ])
+                self.model += (work_days_in_window <= 5, f"max_5_consecutive_{emp.employee_id}_d{start_day}")
+
+    def _add_constraint_free_weekends(self):
+        """Considerar 1 sábado y domingo libre por trabajador exceptuando a Sofía y Joaquín"""
+        # Encontrar todos los pares de (Sábado, Domingo) del mes
+        weekend_pairs = []
+        for i in range(len(self.calendar) - 1):
+            if self.calendar[i][1] == "Saturday" and self.calendar[i+1][1] == "Sunday":
+                weekend_pairs.append((self.calendar[i][0], self.calendar[i+1][0]))
+
+        for emp in self.employees:
+            # Tu regla específica: omitir a estos trabajadores
+            if emp.name.lower() in ["sofia", "joaquin", "sofía", "joaquín"]:
+                continue
                 
-                self.model += (
-                    work_hours_in_window <= max_days,
-                    f"max_consecutive_{emp.employee_id}_d{start_day}"
-                )
+            # Crear una lista de variables binarias auxiliares que valen 1 SOLO si el Sab y Dom son Libres
+            # Como PuLP no permite variables auxiliares dinámicas fácilmente sin crearlas en el __init__, 
+            # un truco matemático es sumar los 'L' de cada par. Si L_sab + L_dom == 2, el fin de semana es libre.
+            # Hacemos que la suma del "puntaje" de todos los fines de semana sea >= 2 (lo que equivale a 1 fin de semana completo)
+            
+            puntuacion_fines_de_semana = []
+            for sab, dom in weekend_pairs:
+                # Una variable continua entre 0 y 1 que solo llega a 1 si Sab(L) + Dom(L) == 2
+                we_libre = pulp.LpVariable(f"we_libre_{emp.employee_id}_{sab}_{dom}", 0, 1)
+                self.model += we_libre <= self.x[emp.employee_id][sab]["L"]
+                self.model += we_libre <= self.x[emp.employee_id][dom]["L"]
+                puntuacion_fines_de_semana.append(we_libre)
+                
+            # Exigir al menos 1 fin de semana completamente libre
+            self.model += pulp.lpSum(puntuacion_fines_de_semana) >= 1, f"min_1_we_libre_{emp.employee_id}"
+
+    def _add_constraint_monthly_free_days(self):
+        for emp in self.employees:
+            total_libres = pulp.lpSum([self.x[emp.employee_id][day]["L"] + self.x[emp.employee_id][day]["LC"] for day in self.days_range])
+            
+            feriados_trabajados = pulp.lpSum([self.x[emp.employee_id][f_day][s] 
+                                            for f_day in self.feriados_normales 
+                                            for s in self.work_shift_codes])
+            
+            # Base de libres (ej: 8 o 9 dependiendo de las semanas del mes) + los compensados
+            base_libres = self.base_free_days_in_month
+            self.model += (total_libres == base_libres + feriados_trabajados)
+
+    def _constraint_dt_only_on_sundays(self):
+        for emp in self.employees:
+            for day, day_name in self.calendar:
+                if day_name != "Sunday":
+                    # Forzar a 0 la variable DT en cualquier día que no sea domingo
+                    self.model += self.x[emp.employee_id][day]["DT"] == 0, f"No_DT_on_{day}_{emp.employee_id}"
+    
+    def _constraint_part_time_weekends(self):
+        for emp in self.employees:
+            if emp.contract_type == "Part Time":
+                for day, day_name in self.calendar:
+                    if day_name not in ["Saturday", "Sunday"]:
+                        # No pueden tener turnos de trabajo de lunes a viernes
+                        for shift in ["T8", "T9", "T10", "DT"]: # Agrega aquí tus códigos de trabajo
+                            self.model += self.x[emp.employee_id][day][shift] == 0
+                    else:
+                        # En fin de semana, si trabajan, DEBE ser el turno de 10 horas
+                        self.model += self.x[emp.employee_id][day]["T10"] <= 1 # Lógica base para T10
+
+    def _constraint_full_time_weekly_structure(self):
+        # Asumiendo que defines self.weeks como una lista de listas de días, ej: [[1,2,3,4,5,6,7], ...]
+        for emp in self.employees:
+            if emp.contract_type == "Full Time":
+                for week_index, week_days in enumerate(self.weeks):
+                    # 1. Exactamente 2 días libres por semana
+                    self.model += pulp.lpSum([self.x[emp.employee_id][day]["L"] for day in week_days]) == 2
+                    
+                    # 2. Exactamente 3 turnos de 8 horas
+                    self.model += pulp.lpSum([self.x[emp.employee_id][day]["T8"] for day in week_days]) == 3
+                    
+                    # 3. Exactamente 2 turnos de 9 horas (Puedes incluir DT aquí si el DT dura 9 horas)
+                    self.model += pulp.lpSum([self.x[emp.employee_id][day]["T9"] + 
+                                            self.x[emp.employee_id][day]["DT"] for day in week_days]) == 2
+    
+    def _constraint_max_5_consecutive_days(self):
+        work_shifts = ["T8", "T9", "T10", "DT"]
+        for emp in self.employees:
+            for start_day in range(1, self.month_config.days_in_month - 4):
+                # En cualquier ventana de 6 días, la suma de días trabajados no puede superar 5
+                worked_in_window = pulp.lpSum([
+                    self.x[emp.employee_id][start_day + offset][s]
+                    for offset in range(6)
+                    for s in work_shifts
+                    if start_day + offset <= self.month_config.days_in_month
+                ])
+                self.model += worked_in_window <= 5
+
+    def _constraint_min_sundays_ft(self):
+        sundays = [day for day, name in self.calendar if name == "Sunday"]
+        for emp in self.employees:
+            if emp.contract_type == "Full Time":
+                # La suma de DT en todos los domingos del mes debe ser >= 2
+                self.model += pulp.lpSum([self.x[emp.employee_id][sun]["DT"] for sun in sundays]) >= 2
+
+    def _constraint_one_free_weekend(self):
+        # Identificar los pares de (Sábado, Domingo) del mes
+        weekend_pairs = self._get_weekend_pairs() # Método que debes crear que retorne ej: [(6,7), (13,14)...]
+        
+        for emp in self.employees:
+            # Excepciones específicas del equipo
+            if emp.name.lower() in ["sofia", "joaquin", "sofía", "joaquín"]:
+                continue 
+                
+            # Para el resto, deben tener al menos un par (Sab, Dom) donde ambos sean "L"
+            # Esto requiere crear una variable binaria auxiliar por fin de semana en PuLP
+            # ...
+
+    def _constraint_holiday_compensation(self):
+        for emp in self.employees:
+            total_libres = pulp.lpSum([self.x[emp.employee_id][day]["L"] for day in self.days_range])
+            
+            # Contar cuántos feriados normales trabajó este empleado
+            feriados_trabajados = pulp.lpSum([
+                self.x[emp.employee_id][h_day]["T8"] + self.x[emp.employee_id][h_day]["T9"]
+                for h_day in self.feriados_normales
+            ])
+            
+            # Días libres base (ej: 4 semanas = 8 libres) + compensación
+            dias_libres_base = self.calcular_libres_base_del_mes() 
+            self.model += total_libres == dias_libres_base + feriados_trabajados
 
     def _add_constraint_coverage_requirements(self):
         """
@@ -256,6 +380,17 @@ class ScheduleOptimizer:
         
         print("[SCHEDULER] Agregando restricción: excepciones fijas...")
         self._add_constraint_fixed_exceptions()
+
+        print("[SCHEDULER] Agregando reglas de negocio V2.0...")
+        self._constraint_dt_only_on_sundays()
+        self._constraint_part_time_weekends()
+        self._constraint_full_time_weekly_structure()
+        self._constraint_max_5_consecutive_days()
+        self._constraint_min_sundays_ft()
+        self._constraint_holiday_compensation()
+
+        print("[SCHEDULER] Agregando restricción: cobertura mínima...")
+        self._add_constraint_coverage_requirements()
         
         print("[SCHEDULER] Agregando restricción 1: límite de horas...")
         self._add_constraint_max_hours_per_month()

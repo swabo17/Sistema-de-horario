@@ -12,7 +12,7 @@ from pathlib import Path
 from models import (
     SchedulingRequest, SchedulingRequestData, ScheduleResult
 )
-from scheduler_simple import SimpleScheduleOptimizer
+from scheduler_v2 import ScheduleOptimizer
 from excel_generator import ExcelScheduleGenerator
 
 
@@ -70,7 +70,7 @@ def generate_schedule():
         print(f"[API] Mes: {request_data.month_config.month}/{request_data.month_config.year}")
         
         # Crear optimizador SIMPLE (funcional)
-        optimizer = SimpleScheduleOptimizer(
+        optimizer = ScheduleOptimizer(
             month_config=request_data.month_config,
             store_config=request_data.store_config,
             employees=request_data.employees

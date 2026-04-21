@@ -153,6 +153,9 @@ class ScheduleOptimizer:
         print("[SCHEDULER_V2] 3/13 - Restricción: Full Time - 5 días trabajo por semana...")
         self._constraint_ft_5_working_days_per_week()
         
+        self._constraint_max_5_consecutive_days()
+        self._constraint_dt_only_on_sundays()
+
         print("[SCHEDULER_V2] 4/13 - Restricción: Full Time - Distribución 2×T9 + 3×T8...")
         self._constraint_ft_9h_8h_distribution()
         
@@ -216,14 +219,19 @@ class ScheduleOptimizer:
                 )
 
     def _constraint_ft_5_working_days_per_week(self):
-        """Hard FT: Exactamente 5 días trabajados por semana
-        
-        Trabajar = T8, T9, T10, DT (cualquier turno)
-        Descansar = L, LC, V, LM, FI, C
-        """
+        """Hard FT: Exactamente 5 días trabajados solo en semanas completas"""
         for emp_id in self.emp_ft:
             for week_idx, week_days in enumerate(self.weeks):
                 work_codes = ["T8", "T9", "T10", "DT"]
+                
+                if len(week_days) < 7:
+                    # En la semana incompleta, solo limitamos a que no supere los días disponibles
+                    self.model += (
+                        pulp.lpSum([self.x[emp_id][day][s] for day in week_days for s in work_codes]) <= len(week_days),
+                        f"ft_max_work_days_week{week_idx}_{emp_id}"
+                    )
+                    continue
+
                 self.model += (
                     pulp.lpSum([self.x[emp_id][day][s] for day in week_days for s in work_codes]) == 5,
                     f"ft_5_work_days_week{week_idx}_{emp_id}"
@@ -263,43 +271,67 @@ class ScheduleOptimizer:
                 f"ft_min_sundays_free_{emp_id}"
             )
 
+    def _constraint_dt_only_on_sundays(self):
+        """Hard: El turno DT (Domingo Trabajado) SOLO puede ir en domingos"""
+        for emp_id in self.employees:
+            for day in self.days_range:
+                if day not in self.sundays:
+                    # Forzar a 0 la variable DT en cualquier día que no sea domingo
+                    self.model += self.x[emp_id][day]["DT"] == 0, f"no_dt_not_sunday_{emp_id}_{day}"
+
     def _constraint_ft_2_free_per_week(self):
-        """Hard FT: Exactamente 2 días LIBRES por semana (L o LC)"""
+        """Hard FT: Exactamente 2 días LIBRES en semanas completas"""
         for emp_id in self.emp_ft:
             for week_idx, week_days in enumerate(self.weeks):
+                if len(week_days) < 7:
+                    continue # No forzar la regla de 2 días en el sobrante del mes
+                    
                 self.model += (
-                    pulp.lpSum([self.x[emp_id][day][s] 
-                               for day in week_days 
-                               for s in ["L", "LC"]]) == 2,
+                    pulp.lpSum([self.x[emp_id][day][s] for day in week_days for s in ["L", "LC"]]) == 2,
                     f"ft_2_free_week{week_idx}_{emp_id}"
                 )
 
     def _constraint_pt_weekends_only(self):
-        """Hard PT: Solo pueden trabajar sábado y domingo
-        
-        De lunes a viernes: solo L, V, LM, FI, C (no T10)
-        """
+        """Hard PT: Lunes a Viernes DEBEN estar Libres (L)"""
         for emp_id in self.emp_pt:
             for day in self.weekdays:
-                # Los días de semana no pueden tener T10 ni DT
-                self.model += (
-                    self.x[emp_id][day]["T10"] + self.x[emp_id][day]["DT"] == 0,
-                    f"pt_no_work_weekday_{emp_id}_{day}"
-                )
+                # Al forzar que "L" sea 1, automáticamente todos los demás turnos (T8, T9, etc.)
+                # se vuelven 0 por tu restricción de "1 código por día".
+                self.model += self.x[emp_id][day]["L"] == 1, f"pt_free_weekday_{emp_id}_{day}"
+    
 
     def _constraint_pt_2_days_per_week(self):
-        """Hard PT: Exactamente 2 días trabajados por semana (en sábado/domingo)
-        
-        Cada día trabaja 10h, entonces 2×10h = 20h/semana ✓
-        """
+        """Hard PT: 2 días trabajados por semana (si existe fin de semana en esos días)"""
         for emp_id in self.emp_pt:
             for week_idx, week_days in enumerate(self.weeks):
+                # Contar cuántos sábados y domingos reales hay en este bloque de días
+                weekend_days = [d for d in week_days if self.calendar[d-1][1] in ["Saturday", "Sunday"]]
+                
+                if len(weekend_days) < 2:
+                    self.model += (
+                        pulp.lpSum([self.x[emp_id][day][s] for day in week_days for s in ["T10", "DT"]]) <= len(weekend_days),
+                        f"pt_max_work_days_week{week_idx}_{emp_id}"
+                    )
+                    continue
+
                 self.model += (
-                    pulp.lpSum([self.x[emp_id][day][s] 
-                               for day in week_days 
-                               for s in ["T10", "DT"]]) == 2,
+                    pulp.lpSum([self.x[emp_id][day][s] for day in week_days for s in ["T10", "DT"]]) == 2,
                     f"pt_2_work_days_week{week_idx}_{emp_id}"
                 )
+
+    def _constraint_max_5_consecutive_days(self):
+        """Asegura que un trabajador nunca trabaje más de 5 días seguidos en ventanas móviles"""
+        work_codes = ["T8", "T9", "T10", "DT"]
+        for emp_id in self.employees:
+            # Ventanas móviles de 6 días: la suma del trabajo no puede ser 6
+            for start_day in range(1, self.month_config.days_in_month - 4):
+                window = [start_day + offset for offset in range(6) if start_day + offset <= self.month_config.days_in_month]
+                
+                if len(window) == 6:
+                    self.model += (
+                        pulp.lpSum([self.x[emp_id][day][s] for day in window for s in work_codes]) <= 5,
+                        f"max_5_consecutive_{emp_id}_start_{start_day}"
+                    )
 
     def _constraint_holidays_irren(self):
         """Hard: Feriados Irrenunciables automáticamente asignados a FI
@@ -318,29 +350,27 @@ class ScheduleOptimizer:
                     )
 
     def _constraint_holiday_compensation(self):
-        """Hard FT: Si trabaja en feriado NORMAL (T8 o T9), debe tener mínimo 1 LC en el mes
+        """Hard: Solo se da LC exacto a los FT que trabajaron feriado normal."""
         
-        Matemáticamente:
-          Para cada día d ∈ HOLIDAYS_NORMAL:
-            worked_holiday[emp, d] = x[emp, d, T8] + x[emp, d, T9]
-          
-          ∑_{d ∈ D} x[emp, d, LC] >= ∑_{d ∈ HOLIDAYS_NORMAL} worked_holiday[emp, d]
-        """
+        # 1. Para los Full Time
         for emp_id in self.emp_ft:
-            # Total de LC en el mes
             total_lc = pulp.lpSum([self.x[emp_id][day]["LC"] for day in self.days_range])
             
-            # Total de días trabajados en feriados normales
             worked_in_normal_holidays = pulp.lpSum([
-                self.x[emp_id][day]["T8"] + self.x[emp_id][day]["T9"] 
+                self.x[emp_id][day]["T8"] + self.x[emp_id][day]["T9"] + self.x[emp_id][day]["DT"]
                 for day in self.holidays_normal
             ])
             
-            # Restricción: LC >= trabajos en feriados normales
+            # ¡EL SECRETO ESTÁ AQUÍ! Es ==, no >=
             self.model += (
-                total_lc >= worked_in_normal_holidays,
-                f"holiday_compensation_{emp_id}"
+                total_lc == worked_in_normal_holidays,
+                f"holiday_compensation_exact_{emp_id}"
             )
+            
+        # 2. Para los Part Time (Prohibir que el modelo use LC para rellenar)
+        for emp_id in self.emp_pt:
+            total_lc = pulp.lpSum([self.x[emp_id][day]["LC"] for day in self.days_range])
+            self.model += (total_lc == 0, f"no_lc_for_pt_{emp_id}")
 
     def _constraint_minimum_coverage(self):
         """Hard: Cobertura mínima de empleados por día"""
